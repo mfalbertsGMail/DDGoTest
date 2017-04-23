@@ -9,7 +9,7 @@ using System.Linq;
 using System.Diagnostics;
 
 
-namespace DDGoTest
+namespace DDGo
 {
   public class  HTTPStats
   {
@@ -38,6 +38,7 @@ namespace DDGoTest
       string jsonResult = "";
       //searchUrls.ForEach(url => Console.Write("{0}\t", url));
       List<HTTPStats> stats = new List<HTTPStats>();
+
       if (async == true)
       {
         Task<HTTPStats>[] tasks = new Task<HTTPStats>[searchUrls.Count];
