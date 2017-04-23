@@ -11,12 +11,21 @@ using System.Diagnostics;
 
 namespace DDGo
 {
-  public class  HTTPStats
+  class Root
+  {
+    public string[] SearchTerms { get; set; }
+    public string RequestStart { get; set; }
+    public long TotalElapsedTime_ms { get; set; }
+    public long TotalSize { get; set; }
+
+
+  }
+  class  HTTPStats
   {
     public string URL { get; set; }
     public DateTime RequestStart { get; set; }
     public int Size { get; set; }
-    public long ElapsedTimeMS { get; set; }
+    public long ElapsedTime_ms { get; set; }
     public bool Success { get; set; }
   }
 
@@ -33,25 +42,23 @@ namespace DDGo
       sw.Start();
       string searchTermsFmt =searchTerms.Replace(' ', '+'); // todo: need to encode this!
       string DDSearchURL = string.Format(@"http://api.duckduckgo.com/?q={0}&format=json&pretty=1", searchTermsFmt);
-      HTTPStats httpStats = new HTTPStats();
-      List<string> searchUrls = GetRelatedTopics(DDSearchURL, httpStats);
-      string jsonResult = "";
-      //searchUrls.ForEach(url => Console.Write("{0}\t", url));
+      HTTPStats httpStatsGetRelatedTopics = new HTTPStats();
+      List<string> searchUrls = GetRelatedTopics(DDSearchURL, httpStatsGetRelatedTopics);
       List<HTTPStats> stats = new List<HTTPStats>();
-
+      stats.Add(httpStatsGetRelatedTopics);
       if (async == true)
       {
-        Task<HTTPStats>[] tasks = new Task<HTTPStats>[searchUrls.Count];
-        int i = 0;
-        searchUrls.ForEach(url => tasks[i++] = GetHTTPStatsAsync(url));
-        Task.WaitAll(tasks);
+        List<Task<HTTPStats>> tasks = new List<Task<HTTPStats>>();
+        searchUrls.ForEach(url => tasks.Add(GetHTTPStatsAsync(url)));
+        Task.WaitAll(tasks.ToArray());
+        tasks.ForEach(task => stats.Add(task.Result));
       } else
       {
         searchUrls.ForEach(url => stats.Add(GetHTTPStatsAsync(url).Result));
       }
       sw.Stop();
       Console.WriteLine("Elapsed Time (ms) = " + sw.ElapsedMilliseconds);
-      return null;
+      return JsonConvert.SerializeObject(stats, Formatting.Indented);
     }
 
     private List<string> GetRelatedTopics(string DDSearchURL, HTTPStats httpStats)
@@ -90,7 +97,7 @@ namespace DDGo
       }
       finally
       {
-        httpStats.ElapsedTimeMS = watch.ElapsedMilliseconds;
+        httpStats.ElapsedTime_ms = watch.ElapsedMilliseconds;
         watch.Stop();
       }
       return relatedTopicsUrls;
@@ -115,7 +122,7 @@ namespace DDGo
       finally
       {
         sw.Stop();
-        httpStats.ElapsedTimeMS = sw.ElapsedMilliseconds;
+        httpStats.ElapsedTime_ms = sw.ElapsedMilliseconds;
       }
       return httpStats;
 
