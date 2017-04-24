@@ -11,21 +11,24 @@ using System.Diagnostics;
 
 namespace DDGo
 {
-  class Root
+  class DDGoStats
   {
     public string[] SearchTerms { get; set; }
     public string RequestStart { get; set; }
-    public long TotalElapsedTime_ms { get; set; }
-    public long TotalSize { get; set; }
-
-
+    public int DocumentCount { get; set; }
+    public long TotalSizeBytes { get; set; }
+    public long CrawlAsyncTimeMs { get; set;  }
+    public long CrawlSyncTimeMs { get; set; }
+    public bool SkipSyncTest { get; set; }
+    public long TotalElapsedTimeMs { get; set; }
   }
+
   class  HTTPStats
   {
     public string URL { get; set; }
     public DateTime RequestStart { get; set; }
-    public int Size { get; set; }
-    public long ElapsedTime_ms { get; set; }
+    public int SizeBytes { get; set; }
+    public long ElapsedTimeMs { get; set; }
     public bool Success { get; set; }
   }
 
@@ -36,29 +39,43 @@ namespace DDGo
       return;
     }
 
-    public string Crawl(string searchTerms, bool async)
+    public string Crawl(string searchTerms, bool skipSyncTest = false)
     {
+      DDGoStats ddGoStats = new DDGoStats() { RequestStart = DateTime.Now.ToString("yyyy'-'MM'-'dd'T'HH':'mm':'ss") };
+      ddGoStats.SearchTerms = searchTerms.Split(' ');
+      ddGoStats.SkipSyncTest = skipSyncTest;
       Stopwatch sw = new Stopwatch();
       sw.Start();
       string searchTermsFmt =searchTerms.Replace(' ', '+'); // todo: need to encode this!
       string DDSearchURL = string.Format(@"http://api.duckduckgo.com/?q={0}&format=json&pretty=1", searchTermsFmt);
       HTTPStats httpStatsGetRelatedTopics = new HTTPStats();
       List<string> searchUrls = GetRelatedTopics(DDSearchURL, httpStatsGetRelatedTopics);
-      List<HTTPStats> stats = new List<HTTPStats>();
-      stats.Add(httpStatsGetRelatedTopics);
-      if (async == true)
+      ddGoStats.DocumentCount = searchUrls.Count;
+      // do Async version
       {
+        Stopwatch swAsync = new Stopwatch();
+        swAsync.Start();
         List<Task<HTTPStats>> tasks = new List<Task<HTTPStats>>();
         searchUrls.ForEach(url => tasks.Add(GetHTTPStatsAsync(url)));
         Task.WaitAll(tasks.ToArray());
-        tasks.ForEach(task => stats.Add(task.Result));
-      } else
+        swAsync.Stop();
+        ddGoStats.TotalSizeBytes = tasks.Sum(task => task.Result.SizeBytes) + httpStatsGetRelatedTopics.SizeBytes;
+        ddGoStats.CrawlAsyncTimeMs = swAsync.ElapsedMilliseconds;
+      } 
+      // do Sync verion
+      if (skipSyncTest == false)
       {
+        Stopwatch swAsync = new Stopwatch();
+        swAsync.Start();
+        List<HTTPStats> stats = new List<HTTPStats>(); // don't really need this for this test
         searchUrls.ForEach(url => stats.Add(GetHTTPStatsAsync(url).Result));
+        swAsync.Stop();
+        ddGoStats.CrawlSyncTimeMs = swAsync.ElapsedMilliseconds;
       }
       sw.Stop();
+      ddGoStats.TotalElapsedTimeMs = sw.ElapsedMilliseconds;
       Console.WriteLine("Elapsed Time (ms) = " + sw.ElapsedMilliseconds);
-      return JsonConvert.SerializeObject(stats, Formatting.Indented);
+      return JsonConvert.SerializeObject(ddGoStats, Formatting.Indented);
     }
 
     private List<string> GetRelatedTopics(string DDSearchURL, HTTPStats httpStats)
@@ -85,7 +102,7 @@ namespace DDGo
         var httpClient = new HttpClient();
         var response = httpClient.GetAsync(DDSearchURL).Result;
         var content = response.Content.ReadAsStringAsync().Result;
-        httpStats.Size = content.Length;
+        httpStats.SizeBytes = content.Length;
         JObject relatedTopicsSearch = JObject.Parse(content);
         IList<JToken> relatedTopics = relatedTopicsSearch["RelatedTopics"].Children().ToList();
         foreach (JToken token in relatedTopics)
@@ -97,7 +114,7 @@ namespace DDGo
       }
       finally
       {
-        httpStats.ElapsedTime_ms = watch.ElapsedMilliseconds;
+        httpStats.ElapsedTimeMs = watch.ElapsedMilliseconds;
         watch.Stop();
       }
       return relatedTopicsUrls;
@@ -113,7 +130,7 @@ namespace DDGo
         var httpClient = new HttpClient();
         var response = await httpClient.GetAsync(url);
         var content = await response.Content.ReadAsStringAsync();
-        httpStats.Size = content.Length;
+        httpStats.SizeBytes = content.Length;
         httpStats.Success = true;
       } catch (Exception)
       {
@@ -122,7 +139,7 @@ namespace DDGo
       finally
       {
         sw.Stop();
-        httpStats.ElapsedTime_ms = sw.ElapsedMilliseconds;
+        httpStats.ElapsedTimeMs = sw.ElapsedMilliseconds;
       }
       return httpStats;
 
@@ -131,18 +148,3 @@ namespace DDGo
 }
 
 
-/*
- * 
- * 
- * 
- async Task Foo(){
-    try{
-        var res = await myObject.CallMethodReturningTaskOrAsyncMethod();
-        doSomethingWithRes();
-    } catch(e){
-         // handle errors, this will be called if the async task errors
-    } finally {
-        // this is your .always
-    }
-}
-*/
