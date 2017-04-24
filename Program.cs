@@ -6,7 +6,7 @@ namespace DDGo
   {
     static void Main(string[] args)
     {
-      DDGoReq dd = new DDGoReq();
+      DDGoService dd = new DDGoService();
       string search_string = "simpsons characters";
       //string search_string = "dogs";
       string jsonResults = dd.Crawl(search_string, false);
