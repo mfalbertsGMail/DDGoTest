@@ -9,7 +9,7 @@ namespace DDGo
       DDGoReq dd = new DDGoReq();
       string search_string = "simpsons characters";
       //string search_string = "dogs";
-      string jsonResults = dd.Crawl(search_string, true);
+      string jsonResults = dd.Crawl(search_string, false);
       Console.WriteLine(jsonResults);
     }
   }

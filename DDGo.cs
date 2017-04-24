@@ -19,11 +19,12 @@ namespace DDGo
     public long TotalSizeBytes { get; set; }
     public long CrawlAsyncTimeMs { get; set;  }
     public long CrawlSyncTimeMs { get; set; }
-    public bool SkipSyncTest { get; set; }
     public long TotalElapsedTimeMs { get; set; }
+    public bool SkipSyncTest { get; set; }
+    public List<HTTPStat> DetailStats { get; set; }
   }
 
-  class  HTTPStats
+  class  HTTPStat
   {
     public string URL { get; set; }
     public DateTime RequestStart { get; set; }
@@ -38,47 +39,63 @@ namespace DDGo
     {
       return;
     }
-
-    public string Crawl(string searchTerms, bool skipSyncTest = false)
+    public string Crawl(string searchTerms, bool skipSyncTest)
     {
+      Stopwatch swAction = new Stopwatch();
+      swAction.Start();
       DDGoStats ddGoStats = new DDGoStats() { RequestStart = DateTime.Now.ToString("yyyy'-'MM'-'dd'T'HH':'mm':'ss") };
       ddGoStats.SearchTerms = searchTerms.Split(' ');
       ddGoStats.SkipSyncTest = skipSyncTest;
-      Stopwatch sw = new Stopwatch();
-      sw.Start();
-      string searchTermsFmt =searchTerms.Replace(' ', '+'); // todo: need to encode this!
-      string DDSearchURL = string.Format(@"http://api.duckduckgo.com/?q={0}&format=json&pretty=1", searchTermsFmt);
-      HTTPStats httpStatsGetRelatedTopics = new HTTPStats();
-      List<string> searchUrls = GetRelatedTopics(DDSearchURL, httpStatsGetRelatedTopics);
-      ddGoStats.DocumentCount = searchUrls.Count;
-      // do Async version
+
       {
-        Stopwatch swAsync = new Stopwatch();
-        swAsync.Start();
-        List<Task<HTTPStats>> tasks = new List<Task<HTTPStats>>();
-        searchUrls.ForEach(url => tasks.Add(GetHTTPStatsAsync(url)));
-        Task.WaitAll(tasks.ToArray());
-        swAsync.Stop();
-        ddGoStats.TotalSizeBytes = tasks.Sum(task => task.Result.SizeBytes) + httpStatsGetRelatedTopics.SizeBytes;
-        ddGoStats.CrawlAsyncTimeMs = swAsync.ElapsedMilliseconds;
-      } 
-      // do Sync verion
+        Stopwatch swCrawl = new Stopwatch();
+        swCrawl.Start();
+        List<HTTPStat> httpStats = DoCrawl(searchTerms, true);
+        swCrawl.Stop();
+        ddGoStats.CrawlAsyncTimeMs = swCrawl.ElapsedMilliseconds;
+        ddGoStats.DocumentCount = httpStats.Count;
+        ddGoStats.TotalSizeBytes = httpStats.Sum(stat => stat.SizeBytes);
+        //ddGoStats.DetailStats = httpStats;
+      }
       if (skipSyncTest == false)
       {
-        Stopwatch swAsync = new Stopwatch();
-        swAsync.Start();
-        List<HTTPStats> stats = new List<HTTPStats>(); // don't really need this for this test
-        searchUrls.ForEach(url => stats.Add(GetHTTPStatsAsync(url).Result));
-        swAsync.Stop();
-        ddGoStats.CrawlSyncTimeMs = swAsync.ElapsedMilliseconds;
+        Stopwatch sw = new Stopwatch();
+        sw.Start();
+        List<HTTPStat> httpStats = DoCrawl(searchTerms, false);
+        sw.Stop();
+        ddGoStats.CrawlSyncTimeMs = sw.ElapsedMilliseconds;
       }
-      sw.Stop();
-      ddGoStats.TotalElapsedTimeMs = sw.ElapsedMilliseconds;
-      Console.WriteLine("Elapsed Time (ms) = " + sw.ElapsedMilliseconds);
+      swAction.Stop();
+      ddGoStats.TotalElapsedTimeMs = swAction.ElapsedMilliseconds;
       return JsonConvert.SerializeObject(ddGoStats, Formatting.Indented);
     }
 
-    private List<string> GetRelatedTopics(string DDSearchURL, HTTPStats httpStats)
+    private List<HTTPStat> DoCrawl(string searchTerms, bool runAsync = false)
+    {
+      string searchTermsFmt = searchTerms.Replace(' ', '+'); // todo: need to encode this!
+      string DDSearchURL = string.Format(@"http://api.duckduckgo.com/?q={0}&format=json&pretty=1", searchTermsFmt);
+      HTTPStat httpStatsGetRelatedTopics = new HTTPStat();
+      List<string> searchUrls = GetRelatedTopics(DDSearchURL, httpStatsGetRelatedTopics);
+      
+      // create list to hold stats for all HTTP requests
+      List<HTTPStat> httpStats = new List<HTTPStat>();
+      httpStats.Add(httpStatsGetRelatedTopics);
+      if (runAsync == true)
+      {
+        List<Task<HTTPStat>> tasks = new List<Task<HTTPStat>>();
+        searchUrls.ForEach(url => tasks.Add(GetHTTPStatsAsync(url)));
+        Task.WaitAll(tasks.ToArray());
+        // move the stats into the return list
+        tasks.ForEach(task => httpStats.Add(task.Result));
+      }
+      else
+      {
+        searchUrls.ForEach(url => httpStats.Add(GetHTTPStatsAsync(url).Result));
+      }
+      return httpStats;
+    }
+
+    private List<string> GetRelatedTopics(string DDSearchURL, HTTPStat httpStats)
     {
       // embedded helper - the "ReleatedTopics" can contain
       // multiple levels of results - normal 'results' and then Topics with
@@ -120,9 +137,9 @@ namespace DDGo
       return relatedTopicsUrls;
     }
 
-    private async Task<HTTPStats> GetHTTPStatsAsync(string url)
+    private async Task<HTTPStat> GetHTTPStatsAsync(string url)
     {
-      HTTPStats httpStats = new HTTPStats() { RequestStart = DateTime.Now, URL = url };
+      HTTPStat httpStats = new HTTPStat() { RequestStart = DateTime.Now, URL = url };
       Stopwatch sw = new Stopwatch();
       sw.Start();
       try
