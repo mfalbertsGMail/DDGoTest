@@ -8,7 +8,7 @@ using System.Linq;
 using System.Diagnostics;
 
 
-namespace DDGo
+namespace DDGoService
 {
   class DDGoStats
   {
@@ -20,7 +20,8 @@ namespace DDGo
     public long CrawlSyncTimeMs { get; set; }
     public long TotalElapsedTimeMs { get; set; }
     public bool SkipSynchronousTest { get; set; }
-    public List<HTTPStat> DetailStats { get; set; }
+    public List<HTTPStat> DetailStatsAsync { get; set; }
+    public List<HTTPStat> DetailStatsSync { get; set; }
   }
 
   class  HTTPStat
@@ -32,20 +33,20 @@ namespace DDGo
     public bool Success { get; set; }
   }
 
-  public class DDGoService
+  public class DDGoCrawlService
   {
-    public DDGoService()
+    public DDGoCrawlService()
     {
       return;
     }
-    public string Crawl(string searchTerms, bool skipSynchronousTest)
+    public string Crawl(string searchTerms, bool skipSynchronousTest, bool saveDetailStats = false)
     {
       Stopwatch swAction = new Stopwatch();
       swAction.Start();
       DDGoStats ddGoStats = new DDGoStats() { RequestStart = DateTime.Now.ToString("yyyy'-'MM'-'dd'T'HH':'mm':'ss") };
       ddGoStats.SearchTerms = searchTerms.Split(' ');
       ddGoStats.SkipSynchronousTest = skipSynchronousTest;
-
+      // normal - asynchronous operation
       {
         Stopwatch swCrawl = new Stopwatch();
         swCrawl.Start();
@@ -55,7 +56,8 @@ namespace DDGo
 
         ddGoStats.DocumentCount = httpStats.Count;
         ddGoStats.TotalSizeBytes = httpStats.Sum(stat => stat.SizeBytes);
-        //ddGoStats.DetailStats = httpStats;
+        if (saveDetailStats == true)
+          ddGoStats.DetailStatsAsync = httpStats; // save individual statistics 
       }
       if (skipSynchronousTest == false)
       {
@@ -64,6 +66,8 @@ namespace DDGo
         List<HTTPStat> httpStats = RunCrawlAction(searchTerms, false);
         swCrawl.Stop();
         ddGoStats.CrawlSyncTimeMs = swCrawl.ElapsedMilliseconds;
+        if (saveDetailStats == true)
+          ddGoStats.DetailStatsSync = httpStats; // save individual statistics
       }
       swAction.Stop();
       ddGoStats.TotalElapsedTimeMs = swAction.ElapsedMilliseconds;
@@ -77,10 +81,12 @@ namespace DDGo
       string DDSearchURL = string.Format(@"http://api.duckduckgo.com/?q={0}&format=json&pretty=1", searchTermsFmt);
       HTTPStat httpStatsGetRelatedTopics = new HTTPStat();
       List<string> searchUrls = GetRelatedTopics(DDSearchURL, httpStatsGetRelatedTopics);
-      
+
       // create list to hold stats for all HTTP requests
-      List<HTTPStat> httpStats = new List<HTTPStat>();
-      httpStats.Add(httpStatsGetRelatedTopics);
+      List<HTTPStat> httpStats = new List<HTTPStat>
+      {
+        httpStatsGetRelatedTopics
+      };
       if (runAsync == true)
       {
         List<Task<HTTPStat>> tasks = new List<Task<HTTPStat>>();
@@ -113,7 +119,7 @@ namespace DDGo
       // start of method 
       httpStats.RequestStart = DateTime.Now;
       httpStats.URL = DDSearchURL;
-      var watch = Stopwatch.StartNew();
+      Stopwatch watch = Stopwatch.StartNew();
       watch.Start();
       List<string> relatedTopicsUrls = new List<string>();
       try
